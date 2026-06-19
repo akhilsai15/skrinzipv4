@@ -560,8 +560,11 @@ export function SparkViewer({
       if (!customChats[username]) customChats[username] = [];
       customChats[username].push({
         id: Date.now().toString() + Math.random(),
+        type: 'text',
         text: `💬 (Spark reply) ${replyText}`,
         sender: 'me',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        status: 'sent',
         timestamp: Date.now(),
       });
       localStorage.setItem('skrimchat_custom_chats', JSON.stringify(customChats));
@@ -590,54 +593,172 @@ export function SparkViewer({
   };
 
   const handleShareOption = (platform: string) => {
+    const sparkUrl = `https://skrim.chat/spark/${spark.id}`;
+    const sparkText = encodeURIComponent(`⚡ Check out this Spark on Skrim! ${sparkUrl}`);
+
     if (platform === "Connect") {
       setActiveSheet("connect");
       setContactSearch("");
       setSelectedContacts([]);
       return;
     }
-    showToast(`Opening ${platform}...`);
+
+    if (platform === "your story") {
+      // Repost spark to own sparks list
+      try {
+        const stored: any[] = JSON.parse(localStorage.getItem('skrimchat_sparks') || '[]');
+        const alreadyReposted = stored.some(s => s.id === `repost_${spark.id}`);
+        if (!alreadyReposted) {
+          const repost = {
+            ...spark,
+            id: `repost_${spark.id}`,
+            user: currentUser,
+            isRepost: true,
+            repostedFrom: group.user.handle || group.user.username,
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+            isOwn: true,
+            hasViewed: false,
+            views: 0,
+            reactions: { pulse: 0, blaze: 0, vibe: 0 },
+          };
+          stored.unshift(repost);
+          localStorage.setItem('skrimchat_sparks', JSON.stringify(stored));
+          showToast("✅ Added to your Spark! It's live on your profile.");
+        } else {
+          showToast('Already reposted to your Spark!');
+        }
+      } catch (e) {
+        showToast('✅ Added to your Spark!');
+      }
+      setActiveSheet(null);
+      return;
+    }
+
+    if (platform === "Arattai") {
+      // Share in Arattai feed (internal share)
+      try {
+        const arattaiPosts: any[] = JSON.parse(localStorage.getItem('skrimchat_arattai_shares') || '[]');
+        arattaiPosts.unshift({
+          id: `arattai_${Date.now()}`,
+          sparkId: spark.id,
+          sparkUrl,
+          sharedBy: currentUser?.username || 'me',
+          sharedAt: Date.now(),
+          caption: `Sharing this Spark ⚡`,
+        });
+        localStorage.setItem('skrimchat_arattai_shares', JSON.stringify(arattaiPosts.slice(0, 50)));
+      } catch (e) {}
+      // Also copy the link
+      navigator.clipboard?.writeText(sparkUrl).catch(() => {});
+      showToast('⚡ Shared in Arattai + link copied!');
+      setActiveSheet(null);
+      return;
+    }
+
+    const shareCaption = `⚡ Check out this Spark on Skrim! ${sparkUrl}`;
+
+    // Platforms with real web share-intent URLs (pre-fills content directly)
+    const intentUrls: Record<string, string> = {
+      WhatsApp:   `https://api.whatsapp.com/send?text=${sparkText}`,
+      Telegram:   `https://t.me/share/url?url=${encodeURIComponent(sparkUrl)}&text=${encodeURIComponent('⚡ Check out this Spark on Skrim!')}`,
+      Twitter:    `https://twitter.com/intent/tweet?text=${sparkText}`,
+      Facebook:   `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(sparkUrl)}`,
+      Reddit:     `https://www.reddit.com/submit?url=${encodeURIComponent(sparkUrl)}&title=${encodeURIComponent('Check out this Spark on Skrim ⚡')}`,
+      LinkedIn:   `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(sparkUrl)}`,
+    };
+
+    // Platforms with NO public web "create post" intent — their apps require native camera/share-sheet.
+    // Best real-world UX: copy the caption, open the app, user pastes into their own post/story.
+    const appOnlyPlatforms: Record<string, string> = {
+      Instagram: 'https://www.instagram.com/',
+      Snapchat:  'https://www.snapchat.com/',
+      Discord:   'https://discord.com/channels/@me',
+    };
+
+    if (intentUrls[platform]) {
+      window.open(intentUrls[platform], '_blank');
+      setActiveSheet(null);
+      return;
+    }
+
+    if (appOnlyPlatforms[platform]) {
+      navigator.clipboard?.writeText(shareCaption).catch(() => {});
+      showToast(`📋 Caption copied! Opening ${platform} — paste it into your post.`);
+      setTimeout(() => window.open(appOnlyPlatforms[platform], '_blank'), 600);
+      setActiveSheet(null);
+      return;
+    }
+
+    navigator.clipboard?.writeText(sparkUrl).catch(() => {});
+    showToast(`Link copied for ${platform}!`);
     setActiveSheet(null);
   };
 
   const handleConnectSend = () => {
     if (selectedContacts.length === 0) return;
-    
-    // Add to mock chat
+
+    // Add to mock chat as a rich Spark share card
     const storedChatsStr = localStorage.getItem('skrimchat_custom_chats');
     const customChats = storedChatsStr ? JSON.parse(storedChatsStr) : {};
-    
+
     selectedContacts.forEach(id => {
       const user = mockUsers.find(u => u.id === id);
       if (user && user.username) {
         const username = user.username.replace('@', '');
         if (!customChats[username]) customChats[username] = [];
-        
+
         customChats[username].push({
           id: Date.now().toString() + Math.random(),
-          text: `Check out this Spark: https://skrim.chat/spark/${spark.id}`,
+          type: 'spark_share',
+          sparkId: spark.id,
+          sparkThumbnail: spark.image || spark.thumbnail || group.user?.avatar,
+          sparkCaption: spark.caption || spark.text || '',
+          sparkUser: {
+            user: group.user?.displayName || group.user?.user || group.user?.username || 'Unknown',
+            handle: group.user?.handle || group.user?.username || '',
+            avatar: group.user?.avatar || group.user?.avatarUrl || '',
+          },
+          sparkMood: spark.mood,
+          isRepost: false,
           sender: "me",
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          status: 'sent',
           timestamp: Date.now()
         });
       }
     });
-    
+
     localStorage.setItem('skrimchat_custom_chats', JSON.stringify(customChats));
 
     const names = selectedContacts
       .map((id) => mockUsers.find((u) => u.id === id)?.displayName)
       .filter(Boolean);
+    const recipients = selectedContacts
+      .map((id) => mockUsers.find((u) => u.id === id))
+      .filter(Boolean);
+
     const msg =
       names.length === 1
         ? `✅ Spark sent to ${names[0]}!`
         : `✅ Spark sent to ${names[0]} & ${names.length - 1} other${names.length > 2 ? "s" : ""}!`;
     showToast(msg);
     setActiveSheet(null);
-    setTimeout(() => navigate('/connect'), 300);
+
+    // Navigate directly to the chat thread of the first recipient
+    if (recipients.length === 1) {
+      const username = (recipients[0] as any).username?.replace('@', '') || (recipients[0] as any).id;
+      setTimeout(() => navigate(`/chat/${username}`), 400);
+    } else if (recipients.length > 1) {
+      // Multiple — go to connect list
+      setTimeout(() => navigate('/connect'), 400);
+    }
   };
 
   const handleCopyLink = () => {
-    showToast("Link copied to clipboard!");
+    const sparkUrl = `https://skrim.chat/spark/${spark.id}`;
+    navigator.clipboard?.writeText(sparkUrl).catch(() => {});
+    showToast('🔗 Link copied: skrim.chat/spark/' + spark.id);
     setActiveSheet(null);
   };
 
@@ -1757,133 +1878,142 @@ export function SparkViewer({
                   <div className="px-5 pb-6">
                     <div className="flex justify-between items-center mb-5">
                       <h3 className="font-bold text-white text-lg flex items-center gap-2">
-                        <Share2 className="w-5 h-5 text-[#B026FF]" /> Share
-                        Spark ⚡
+                        <Share2 className="w-5 h-5 text-[#B026FF]" /> Share Spark ⚡
                       </h3>
-                      <button
-                        onClick={() => setActiveSheet(null)}
-                        className="p-1.5 bg-white/10 rounded-full"
-                      >
+                      <button onClick={() => setActiveSheet(null)} className="p-1.5 bg-white/10 rounded-full">
                         <X className="w-5 h-5 text-white" />
                       </button>
                     </div>
 
-                    <div className="flex flex-col gap-2 mb-6">
+                    {/* Primary actions */}
+                    <div className="flex flex-col gap-2 mb-5">
+                      {/* Share to your Spark — real repost */}
                       <button
                         onClick={() => handleShareOption("your story")}
-                        className="w-full flex items-center gap-4 p-3.5 rounded-xl hover:bg-white/5 transition-colors border border-transparent hover:border-white/10"
+                        className="w-full flex items-center gap-4 p-3.5 rounded-xl bg-[#B026FF]/10 border border-[#B026FF]/30 hover:bg-[#B026FF]/20 transition-colors"
                       >
-                        <div className="w-11 h-11 rounded-full bg-[#B026FF]/20 flex items-center justify-center shrink-0">
+                        <div className="w-11 h-11 rounded-full bg-[#B026FF]/30 flex items-center justify-center shrink-0">
                           <Sparkles className="w-5 h-5 text-[#B026FF]" />
                         </div>
                         <div className="text-left">
-                          <div className="text-white font-semibold">
-                            Share to your Spark
-                          </div>
-                          <div className="text-gray-400 text-xs mt-0.5">
-                            Repost to your own story
-                          </div>
+                          <div className="text-white font-bold">Add to your Spark</div>
+                          <div className="text-[#B026FF]/70 text-xs mt-0.5">Reposts this to your story — live for 24h</div>
                         </div>
                       </button>
+
+                      {/* Send in Connect — to a specific user */}
                       <button
                         onClick={() => handleShareOption("Connect")}
-                        className="w-full flex items-center gap-4 p-3.5 rounded-xl hover:bg-white/5 transition-colors border border-transparent hover:border-white/10"
+                        className="w-full flex items-center gap-4 p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 transition-colors"
                       >
-                        <div className="w-11 h-11 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
+                        <div className="w-11 h-11 rounded-full bg-blue-500/30 flex items-center justify-center shrink-0">
                           <MessageSquare className="w-5 h-5 text-blue-400" />
                         </div>
                         <div className="text-left">
-                          <div className="text-white font-semibold">
-                            Send in Connect
-                          </div>
-                          <div className="text-gray-400 text-xs mt-0.5">
-                            Share privately in chat
-                          </div>
+                          <div className="text-white font-bold">Send in Connect</div>
+                          <div className="text-blue-400/70 text-xs mt-0.5">Pick a contact — opens their chat directly</div>
+                        </div>
+                      </button>
+
+                      {/* Share in Arattai + copy link */}
+                      <button
+                        onClick={() => handleShareOption("Arattai")}
+                        className="w-full flex items-center gap-4 p-3.5 rounded-xl bg-green-500/10 border border-green-500/30 hover:bg-green-500/20 transition-colors"
+                      >
+                        <div className="w-11 h-11 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center shrink-0 text-xl">
+                          💬
+                        </div>
+                        <div className="text-left flex-1">
+                          <div className="text-white font-bold">Share in Arattai</div>
+                          <div className="text-green-400/70 text-xs mt-0.5">Posts to Arattai feed + copies link</div>
+                        </div>
+                        <div className="flex items-center gap-1 bg-green-500/20 px-2 py-1 rounded-full">
+                          <Copy className="w-3 h-3 text-green-400" />
+                          <span className="text-[10px] text-green-400 font-bold">+ Copy</span>
                         </div>
                       </button>
                     </div>
 
-                    <p className="text-xs text-gray-400 font-bold mb-3 uppercase tracking-wider px-2">
-                      More Platforms
+                    {/* Copy link standalone */}
+                    <button
+                      onClick={handleCopyLink}
+                      className="w-full flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors mb-5"
+                    >
+                      <Copy className="w-4 h-4 text-gray-400" />
+                      <span className="text-gray-300 text-sm font-medium flex-1 text-left truncate">
+                        skrim.chat/spark/{spark.id}
+                      </span>
+                      <span className="text-[#B026FF] text-xs font-bold">Copy</span>
+                    </button>
+
+                    <p className="text-xs text-gray-400 font-bold mb-3 uppercase tracking-wider px-1">
+                      Share to Social Media
                     </p>
-                    <div className="grid grid-cols-4 gap-4 px-2">
-                      <button
-                        onClick={() => handleShareOption("Arattai")}
-                        className="flex flex-col items-center gap-2 outline-none group"
-                      >
-                        <div className="w-14 h-14 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-xl shadow-lg border border-white/10 group-hover:scale-105 transition-transform">
-                          💬
+
+                    {/* Social grid — 4 cols */}
+                    <div className="grid grid-cols-4 gap-3 px-1">
+                      {/* WhatsApp */}
+                      <button onClick={() => handleShareOption("WhatsApp")} className="flex flex-col items-center gap-1.5 group">
+                        <div className="w-14 h-14 rounded-2xl bg-[#25D366] flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+                          <svg viewBox="0 0 24 24" className="w-7 h-7 fill-white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.122.555 4.107 1.523 5.83L.057 23.75a.5.5 0 0 0 .62.62l5.896-1.467A11.955 11.955 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22a9.95 9.95 0 0 1-5.092-1.395l-.363-.215-3.758.935.936-3.643-.237-.376A9.96 9.96 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg>
                         </div>
-                        <span className="text-[11px] text-gray-300 font-medium">
-                          Arattai
-                        </span>
+                        <span className="text-[11px] text-gray-300 font-medium">WhatsApp</span>
                       </button>
-                      <button
-                        onClick={() =>
-                          window.open(
-                            "https://api.whatsapp.com/send?text=Check%20out%20this%20Spark!",
-                          )
-                        }
-                        className="flex flex-col items-center gap-2 outline-none group"
-                      >
-                        <div className="w-14 h-14 rounded-full bg-[#25D366] flex items-center justify-center text-white shadow-lg border border-white/10 group-hover:scale-105 transition-transform">
-                          <MessageSquare className="w-6 h-6" />
+
+                      {/* Instagram */}
+                      <button onClick={() => handleShareOption("Instagram")} className="flex flex-col items-center gap-1.5 group">
+                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#f09433] via-[#e6683c] via-[#dc2743] via-[#cc2366] to-[#bc1888] flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+                          <svg viewBox="0 0 24 24" className="w-7 h-7 fill-white"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg>
                         </div>
-                        <span className="text-[11px] text-gray-300 font-medium">
-                          WhatsApp
-                        </span>
+                        <span className="text-[11px] text-gray-300 font-medium">Instagram</span>
                       </button>
-                      <button
-                        onClick={() =>
-                          window.open(
-                            "https://twitter.com/intent/tweet?text=Check%20out%20this%20Spark!",
-                          )
-                        }
-                        className="flex flex-col items-center gap-2 outline-none group"
-                      >
-                        <div className="w-14 h-14 rounded-full bg-[#1DA1F2] flex items-center justify-center text-white shadow-lg border border-white/10 group-hover:scale-105 transition-transform">
-                          <Twitter className="w-6 h-6" />
+
+                      {/* Snapchat */}
+                      <button onClick={() => handleShareOption("Snapchat")} className="flex flex-col items-center gap-1.5 group">
+                        <div className="w-14 h-14 rounded-2xl bg-[#FFFC00] flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+                          <svg viewBox="0 0 24 24" className="w-7 h-7 fill-[#000]"><path d="M12.206.793c.99 0 4.347.276 5.93 3.821.529 1.193.403 3.219.299 4.847l-.003.06c-.012.18-.022.345-.03.51.075.045.203.09.401.09.3-.016.659-.12 1.033-.301.165-.088.344-.104.464-.104.182 0 .359.029.509.09.45.149.734.479.734.838.015.449-.39.839-1.213 1.168-.089.029-.209.075-.344.119-.45.135-1.139.36-1.333.81-.09.224-.061.524.12.868l.015.015c.06.136 1.526 3.475 4.791 4.014.255.044.435.27.42.509 0 .075-.015.149-.045.225-.24.569-1.273.988-3.146 1.271-.059.091-.12.375-.164.57-.029.179-.074.36-.134.553-.076.271-.27.405-.555.405h-.03c-.135 0-.313-.031-.538-.074-.36-.075-.765-.135-1.273-.135-.3 0-.599.015-.913.074-.6.104-1.123.464-1.723.884-.853.599-1.826 1.288-3.294 1.288-.06 0-.119-.015-.18-.015h-.149c-1.468 0-2.427-.675-3.279-1.288-.599-.42-1.107-.779-1.707-.884-.314-.045-.629-.074-.928-.074-.54 0-.958.089-1.272.149-.211.043-.391.074-.54.074-.374 0-.523-.224-.583-.42-.061-.192-.09-.389-.135-.567-.046-.181-.105-.494-.166-.57-1.918-.222-2.95-.642-3.189-1.226-.031-.063-.052-.15-.055-.225-.015-.243.165-.465.42-.509 3.264-.54 4.73-3.879 4.791-4.02l.016-.029c.18-.345.224-.645.119-.869-.195-.434-.884-.658-1.332-.809-.121-.029-.24-.074-.346-.119-1.107-.435-1.257-.93-1.197-1.273.09-.479.674-.793 1.168-.793.146 0 .27.029.383.074.42.194.789.3 1.104.3.234 0 .384-.06.465-.105l-.046-.569c-.098-1.626-.225-3.651.307-4.837C7.392 1.077 10.739.807 11.727.807l.419-.015h.06z"/></svg>
                         </div>
-                        <span className="text-[11px] text-gray-300 font-medium">
-                          Twitter
-                        </span>
+                        <span className="text-[11px] text-gray-300 font-medium">Snapchat</span>
                       </button>
-                      <button
-                        onClick={() =>
-                          window.open(
-                            "https://www.facebook.com/sharer/sharer.php?u=skrim",
-                          )
-                        }
-                        className="flex flex-col items-center gap-2 outline-none group"
-                      >
-                        <div className="w-14 h-14 rounded-full bg-[#4267B2] flex items-center justify-center text-white shadow-lg border border-white/10 group-hover:scale-105 transition-transform">
-                          <Facebook className="w-6 h-6" />
+
+                      {/* X / Twitter */}
+                      <button onClick={() => handleShareOption("Twitter")} className="flex flex-col items-center gap-1.5 group">
+                        <div className="w-14 h-14 rounded-2xl bg-black border border-white/20 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+                          <svg viewBox="0 0 24 24" className="w-6 h-6 fill-white"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.259 5.63 5.905-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
                         </div>
-                        <span className="text-[11px] text-gray-300 font-medium">
-                          Facebook
-                        </span>
+                        <span className="text-[11px] text-gray-300 font-medium">X (Twitter)</span>
                       </button>
-                      <button
-                        onClick={() => handleShareOption("Telegram")}
-                        className="flex flex-col items-center gap-2 outline-none group"
-                      >
-                        <div className="w-14 h-14 rounded-full bg-[#0088cc] flex items-center justify-center text-white shadow-lg border border-white/10 group-hover:scale-105 transition-transform">
-                          <Send className="w-5 h-5 ml-1" />
+
+                      {/* Facebook */}
+                      <button onClick={() => handleShareOption("Facebook")} className="flex flex-col items-center gap-1.5 group">
+                        <div className="w-14 h-14 rounded-2xl bg-[#1877F2] flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+                          <svg viewBox="0 0 24 24" className="w-7 h-7 fill-white"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
                         </div>
-                        <span className="text-[11px] text-gray-300 font-medium">
-                          Telegram
-                        </span>
+                        <span className="text-[11px] text-gray-300 font-medium">Facebook</span>
                       </button>
-                      <button
-                        onClick={handleCopyLink}
-                        className="flex flex-col items-center gap-2 outline-none group"
-                      >
-                        <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center text-white shadow-lg border border-white/10 group-hover:scale-105 transition-transform group-hover:bg-white/20">
-                          <Copy className="w-5 h-5" />
+
+                      {/* Reddit */}
+                      <button onClick={() => handleShareOption("Reddit")} className="flex flex-col items-center gap-1.5 group">
+                        <div className="w-14 h-14 rounded-2xl bg-[#FF4500] flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+                          <svg viewBox="0 0 24 24" className="w-7 h-7 fill-white"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/></svg>
                         </div>
-                        <span className="text-[11px] text-gray-300 font-medium">
-                          Copy Link
-                        </span>
+                        <span className="text-[11px] text-gray-300 font-medium">Reddit</span>
+                      </button>
+
+                      {/* Discord */}
+                      <button onClick={() => handleShareOption("Discord")} className="flex flex-col items-center gap-1.5 group">
+                        <div className="w-14 h-14 rounded-2xl bg-[#5865F2] flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+                          <svg viewBox="0 0 24 24" className="w-7 h-7 fill-white"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.03.056a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+                        </div>
+                        <span className="text-[11px] text-gray-300 font-medium">Discord</span>
+                      </button>
+
+                      {/* Telegram */}
+                      <button onClick={() => handleShareOption("Telegram")} className="flex flex-col items-center gap-1.5 group">
+                        <div className="w-14 h-14 rounded-2xl bg-[#0088cc] flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+                          <svg viewBox="0 0 24 24" className="w-7 h-7 fill-white"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.96 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                        </div>
+                        <span className="text-[11px] text-gray-300 font-medium">Telegram</span>
                       </button>
                     </div>
                   </div>

@@ -202,7 +202,7 @@ export function MessageBubble({ message, isConsecutiveTop, isConsecutiveBottom, 
 
   const isPulsed = message.type === 'text' && message.isPulsed;
 
-  if (message.type === 'gif' || message.type === 'sticker' || message.type === 'photo' || message.type === 'video' || message.type === 'file' || message.type === 'song' || message.type === 'location' || message.type === 'challenge' || message.type === 'challenge_result') {
+  if (message.type === 'gif' || message.type === 'sticker' || message.type === 'photo' || message.type === 'video' || message.type === 'file' || message.type === 'song' || message.type === 'location' || message.type === 'challenge' || message.type === 'challenge_result' || message.type === 'spark_share') {
     bubbleStyle.background = 'transparent';
     bubbleStyle.border = 'none';
     bubbleStyle.boxShadow = 'none';
@@ -406,6 +406,55 @@ export function MessageBubble({ message, isConsecutiveTop, isConsecutiveBottom, 
                      😤 Accept
                   </button>
                )}
+            </div>
+          </div>
+        );
+
+      case 'spark_share':
+        return (
+          <div
+            className="w-[230px] rounded-2xl overflow-hidden cursor-pointer group relative"
+            style={{ border: '1px solid rgba(176,38,255,0.35)', background: 'rgba(176,38,255,0.06)' }}
+            onClick={() => { try { (window as any).__skrimNavigate?.(`/spark/${message.sparkId}`); } catch(e){} }}
+          >
+            {/* Thumbnail */}
+            <div className="relative w-full aspect-[3/4] overflow-hidden">
+              <img
+                src={message.sparkThumbnail}
+                alt=""
+                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent" />
+
+              {/* Repost badge */}
+              {message.isRepost && (
+                <div className="absolute top-2 left-2 bg-black/60 backdrop-blur px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="text-[10px]">🔁</span>
+                  <span className="text-[9px] text-white/90 font-bold uppercase tracking-wide">Reposted</span>
+                </div>
+              )}
+
+              {/* Spark badge top-right */}
+              <div className="absolute top-2 right-2 bg-gradient-to-r from-[#B026FF] to-[#00F0FF] px-2 py-0.5 rounded-full flex items-center gap-1 shadow-lg">
+                <span className="text-[10px]">⚡</span>
+                <span className="text-[9px] text-white font-black uppercase tracking-wide">Spark</span>
+              </div>
+
+              {/* User info bottom of thumbnail */}
+              <div className="absolute bottom-2 left-2 right-2 flex items-center gap-2">
+                <img src={message.sparkUser.avatar} alt="" className="w-6 h-6 rounded-full border border-white/40 object-cover" />
+                <span className="text-white text-xs font-bold truncate drop-shadow">{message.sparkUser.user}</span>
+              </div>
+            </div>
+
+            {/* Caption + CTA */}
+            <div className="p-3 bg-[#0d0d12]">
+              {message.sparkCaption && (
+                <p className="text-white/80 text-xs leading-snug mb-2 line-clamp-2">{message.sparkCaption}</p>
+              )}
+              <div className="flex items-center justify-center gap-1.5 bg-gradient-to-r from-[#B026FF] to-[#00F0FF] rounded-full py-2 text-white text-xs font-bold group-hover:opacity-90 transition-opacity">
+                <span>⚡</span> View Spark
+              </div>
             </div>
           </div>
         );

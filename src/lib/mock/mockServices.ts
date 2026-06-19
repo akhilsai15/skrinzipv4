@@ -14,7 +14,16 @@ export const getPosts = async () => {
 
 export const getSparks = async () => {
   await delay(500);
-  return [...mockSparks];
+  let stored: any[] = [];
+  try {
+    stored = JSON.parse(localStorage.getItem('skrimchat_sparks') || '[]');
+    // Drop expired
+    stored = stored.filter(s => !s.expiresAt || s.expiresAt > Date.now());
+  } catch (e) {}
+  // Merge: stored (own/reposted) sparks first, then mock sparks, de-duped by id
+  const seen = new Set(stored.map(s => s.id));
+  const merged = [...stored, ...mockSparks.filter((s: any) => !seen.has(s.id))];
+  return merged;
 };
 
 export const getReels = async () => {
@@ -49,7 +58,7 @@ export const likePost = async (postId: string) => {
   return { success: true, postId };
 };
 
-export const shareSpark = async (sparkId: string, targetUsername: string, message?: string) => {
+export const shareSpark = async (sparkId: string, targetUsername: string, sparkData?: { thumbnail?: string; caption?: string; user?: { user: string; handle: string; avatar: string }; mood?: string }) => {
   await delay(100);
   try {
     const key = 'skrimchat_custom_chats';
@@ -57,8 +66,16 @@ export const shareSpark = async (sparkId: string, targetUsername: string, messag
     if (!chats[targetUsername]) chats[targetUsername] = [];
     chats[targetUsername].push({
       id: Date.now().toString() + Math.random(),
-      text: message || `Check out this Spark ⚡ skrim.chat/spark/${sparkId}`,
+      type: 'spark_share',
+      sparkId,
+      sparkThumbnail: sparkData?.thumbnail || '',
+      sparkCaption: sparkData?.caption || '',
+      sparkUser: sparkData?.user || { user: 'Unknown', handle: '', avatar: '' },
+      sparkMood: sparkData?.mood,
+      isRepost: false,
       sender: 'me',
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status: 'sent',
       timestamp: Date.now(),
     });
     localStorage.setItem(key, JSON.stringify(chats));

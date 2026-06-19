@@ -115,4 +115,15 @@ export interface LocationMessage extends BaseMessage {
   location: { name: string; country: string; };
 }
 
-export type Message = TextMessage | VoiceMessage | ImageMessage | GifMessage | StickerMessage | GameChallengeMessage | ChallengeResultMessage | PhotoMessage | VideoMessage | FileMessage | SongMessage | LocationMessage;
+export interface SparkShareMessage extends BaseMessage {
+  type: 'spark_share';
+  sparkId: string;
+  sparkThumbnail: string;
+  sparkCaption: string;
+  sparkUser: { user: string; handle: string; avatar: string };
+  sparkMood?: string;
+  isRepost?: boolean;
+  customMessage?: string;
+}
+
+export type Message = TextMessage | VoiceMessage | ImageMessage | GifMessage | StickerMessage | GameChallengeMessage | ChallengeResultMessage | PhotoMessage | VideoMessage | FileMessage | SongMessage | LocationMessage | SparkShareMessage;

@@ -60,10 +60,28 @@ export default function ChatThreadScreen() {
     try {
       const chatId = window.location.pathname.split('/chat/')[1] || 'default';
       const stored = localStorage.getItem(`skrimchat_messages_${chatId}`);
+      let base: Message[] = MOCK_MESSAGES;
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) base = parsed;
       }
+      // Merge in any Spark shares / reposts sent via SparkViewer (skrimchat_custom_chats)
+      const customChatsStr = localStorage.getItem('skrimchat_custom_chats');
+      if (customChatsStr) {
+        const customChats = JSON.parse(customChatsStr);
+        const incoming = customChats[chatId];
+        if (Array.isArray(incoming) && incoming.length > 0) {
+          const existingIds = new Set(base.map((m: any) => m.id));
+          const fresh = incoming.filter((m: any) => !existingIds.has(m.id));
+          if (fresh.length > 0) {
+            base = [...base, ...fresh].sort((a: any, b: any) => (a.timestamp || 0) - (b.timestamp || 0));
+            // Clear consumed custom chat entries so they don't duplicate on next load
+            delete customChats[chatId];
+            localStorage.setItem('skrimchat_custom_chats', JSON.stringify(customChats));
+          }
+        }
+      }
+      return base;
     } catch (e) {}
     return MOCK_MESSAGES;
   });
